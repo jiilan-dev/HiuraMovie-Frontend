@@ -1,4 +1,5 @@
-import axios, { type AxiosInstance, type AxiosRequestConfig, type AxiosResponse } from 'axios';
+import axios, { type AxiosInstance, type AxiosRequestConfig, type AxiosResponse, type InternalAxiosRequestConfig } from 'axios';
+import { tokenManager } from './token-manager';
 
 // Get Base URL from env or default to localhost
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api/v1';
@@ -17,7 +18,7 @@ class HttpService {
         // Request Interceptor: Attach Token
         this.client.interceptors.request.use(
             (config) => {
-                const token = localStorage.getItem('token');
+                const token = tokenManager.getToken();
                 if (token && config.headers) {
                     config.headers.Authorization = `Bearer ${token}`;
                 }
@@ -26,16 +27,31 @@ class HttpService {
             (error) => Promise.reject(error)
         );
 
-        // Response Interceptor: Handle Errors (Global)
+        // Response Interceptor: Handle 401 with retry
         this.client.interceptors.response.use(
             (response) => response,
-            (error) => {
-                if (error.response?.status === 401) {
-                    // Token expired or invalid
-                    localStorage.removeItem('token');
-                    // Optional: Redirect to login or dispatch event
-                    // window.location.href = '/login'; // Let the route loaders handle redirection via checks
+            async (error) => {
+                const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
+
+                // If 401 and not already retried
+                if (error.response?.status === 401 && !originalRequest._retry) {
+                    originalRequest._retry = true;
+
+                    console.log('[HttpService] 401 detected, attempting token refresh...');
+
+                    const newToken = await tokenManager.refreshToken();
+
+                    if (newToken) {
+                        // Update the original request with new token
+                        originalRequest.headers.Authorization = `Bearer ${newToken}`;
+                        // Retry the request
+                        return this.client(originalRequest);
+                    }
+
+                    // Refresh failed, token already cleared by tokenManager
+                    return Promise.reject(error);
                 }
+
                 return Promise.reject(error);
             }
         );
@@ -65,7 +81,7 @@ class HttpService {
         return response.data;
     }
 
-    // Expose raw client for edge cases (e.g. multipart with specific handling)
+    // Expose raw client for edge cases
     public get raw(): AxiosInstance {
         return this.client;
     }
