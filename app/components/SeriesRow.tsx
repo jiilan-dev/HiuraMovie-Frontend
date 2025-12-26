@@ -1,23 +1,22 @@
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useRef, useState } from 'react';
-import { MovieCard } from './MovieCard';
+import { SeriesCard } from './SeriesCard';
 
-interface Movie {
+interface SeriesItem {
   id: string;
   title: string;
   posterUrl?: string;
   year?: number;
-  duration?: string;
   isDummy?: boolean;
   onDummyClick?: () => void;
 }
 
-interface MovieRowProps {
+interface SeriesRowProps {
   title: string;
-  movies: Movie[];
+  series: SeriesItem[];
 }
 
-export function MovieRow({ title, movies }: MovieRowProps) {
+export function SeriesRow({ title, series }: SeriesRowProps) {
   const rowRef = useRef<HTMLDivElement>(null);
   const [showLeftArrow, setShowLeftArrow] = useState(false);
   const [showRightArrow, setShowRightArrow] = useState(true);
@@ -27,7 +26,7 @@ export function MovieRow({ title, movies }: MovieRowProps) {
       const scrollAmount = rowRef.current.clientWidth * 0.8;
       rowRef.current.scrollBy({
         left: direction === 'left' ? -scrollAmount : scrollAmount,
-        behavior: 'smooth'
+        behavior: 'smooth',
       });
     }
   };
@@ -42,15 +41,12 @@ export function MovieRow({ title, movies }: MovieRowProps) {
 
   return (
     <section className="relative py-4 group/row">
-      {/* Title */}
       <h2 className="text-xl md:text-2xl font-bold text-white mb-4 px-4 md:px-12">
         {title}
       </h2>
 
-      {/* Row Container */}
       <div className="relative">
-        {/* Left Arrow */}
-        <button 
+        <button
           onClick={() => scroll('left')}
           className={`absolute left-0 top-0 bottom-0 z-10 w-12 bg-gradient-to-r from-[#141414] to-transparent flex items-center justify-center transition-opacity duration-300 ${
             showLeftArrow ? 'opacity-100' : 'opacity-0 pointer-events-none'
@@ -59,29 +55,26 @@ export function MovieRow({ title, movies }: MovieRowProps) {
           <ChevronLeft className="w-8 h-8 text-white" />
         </button>
 
-        {/* Movies */}
-        <div 
+        <div
           ref={rowRef}
           onScroll={handleScroll}
           className="flex gap-2 overflow-x-auto scrollbar-hide px-4 md:px-12 scroll-smooth"
           style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
         >
-          {movies.map((movie) => (
-            <MovieCard 
-              key={movie.id}
-              id={movie.id}
-              title={movie.title}
-              posterUrl={movie.posterUrl}
-              year={movie.year}
-              duration={movie.duration}
-              isDummy={movie.isDummy}
-              onDummyClick={movie.onDummyClick}
+          {series.map((item) => (
+            <SeriesCard
+              key={item.id}
+              id={item.id}
+              title={item.title}
+              posterUrl={item.posterUrl}
+              year={item.year}
+              isDummy={item.isDummy}
+              onDummyClick={item.onDummyClick}
             />
           ))}
         </div>
 
-        {/* Right Arrow */}
-        <button 
+        <button
           onClick={() => scroll('right')}
           className={`absolute right-0 top-0 bottom-0 z-10 w-12 bg-gradient-to-l from-[#141414] to-transparent flex items-center justify-center transition-opacity duration-300 ${
             showRightArrow ? 'opacity-100' : 'opacity-0 pointer-events-none'

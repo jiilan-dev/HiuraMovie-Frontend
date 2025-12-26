@@ -29,6 +29,7 @@ export interface Movie {
     duration_seconds?: number;
     video_url?: string;
     poster_url?: string; // Placeholder for future
+    subtitle_url?: string;
     created_at: string;
 }
 

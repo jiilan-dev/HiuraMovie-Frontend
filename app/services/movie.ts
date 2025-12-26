@@ -9,6 +9,7 @@ export interface Movie {
     description?: string;
     video_url?: string;
     thumbnail_url?: string;
+    subtitle_url?: string;
     release_year?: number;
     duration_seconds?: number;
     rating?: number;
@@ -145,6 +146,30 @@ export const movieService = {
     getStreamUrl(movieId: string): string {
         const baseUrl = import.meta.env.VITE_API_BASE_URL || '/api/v1';
         return `${baseUrl}/movies/${movieId}/stream`;
+    },
+
+    /**
+     * Get thumbnail URL for a movie
+     */
+    getThumbnailUrl(movieId: string): string {
+        const baseUrl = import.meta.env.VITE_API_BASE_URL || '/api/v1';
+        return `${baseUrl}/movies/${movieId}/thumbnail`;
+    },
+
+    /**
+     * Get subtitle URL for a movie (VTT)
+     */
+    getSubtitleUrl(movieId: string): string {
+        const baseUrl = import.meta.env.VITE_API_BASE_URL || '/api/v1';
+        return `${baseUrl}/movies/${movieId}/subtitle`;
+    },
+
+    /**
+     * Get transcode progress for a movie (0-100)
+     */
+    async getTranscodeProgress(movieId: string): Promise<number> {
+        const response = await http.get<ApiSuccess<number>>(`/movies/${movieId}/progress`);
+        return response.data ?? 0;
     },
 
     /**

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Search, Edit, Trash2, Eye, Plus, Loader2, AlertCircle, Upload, X, Film, Image as LucideImage } from 'lucide-react';
 import { PageHeader, ActionButton, Modal } from '~/components/dashboard';
 import { movieService, type MovieResponse, type CreateMovieRequest } from '~/services/movie';
@@ -31,12 +31,23 @@ export default function MoviesManagement() {
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isUploading, setIsUploading] = useState(false);
+  const [transcodeProgress, setTranscodeProgress] = useState<Record<string, number>>({});
 
   // Fetch movies and genres
-  const fetchData = async () => {
+  const fetchData = useCallback(async (options: { silent?: boolean } = {}) => {
+    const { silent = false } = options;
     try {
-      setIsLoading(true);
-      setError('');
+      if (!silent) {
+        setIsLoading(true);
+        setError('');
+      }
+
+      if (silent) {
+        const moviesData = await movieService.list();
+        setMovies(moviesData);
+        return;
+      }
+
       const [moviesData, genresData] = await Promise.all([
         movieService.list(),
         genreService.list(),
@@ -44,15 +55,58 @@ export default function MoviesManagement() {
       setMovies(moviesData);
       setGenres(genresData);
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to load data');
+      if (!silent) {
+        setError(err.response?.data?.message || 'Failed to load data');
+      }
     } finally {
-      setIsLoading(false);
+      if (!silent) {
+        setIsLoading(false);
+      }
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [fetchData]);
+
+  useEffect(() => {
+    const processingIds = movies
+      .filter((item) => item.movie.status === 'PROCESSING')
+      .map((item) => item.movie.id);
+
+    if (processingIds.length === 0) {
+      setTranscodeProgress({});
+      return;
+    }
+
+    const loadProgress = async () => {
+      const results = await Promise.allSettled(
+        processingIds.map((id) => movieService.getTranscodeProgress(id))
+      );
+
+      setTranscodeProgress((prev) => {
+        const next: Record<string, number> = {};
+        processingIds.forEach((id, index) => {
+          const result = results[index];
+          if (result.status === 'fulfilled') {
+            next[id] = result.value;
+          } else if (prev[id] !== undefined) {
+            next[id] = prev[id];
+          }
+        });
+        return next;
+      });
+    };
+
+    loadProgress();
+
+    const interval = setInterval(() => {
+      fetchData({ silent: true });
+      loadProgress();
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [movies, fetchData]);
 
   // Filter movies
   const filteredMovies = movies.filter(item => {
@@ -196,7 +250,7 @@ export default function MoviesManagement() {
           <AlertCircle className="w-10 h-10 text-red-500 mx-auto mb-4" />
           <p className="text-white font-medium mb-2">Error Loading Movies</p>
           <p className="text-gray-400 mb-4">{error}</p>
-          <button onClick={fetchData} className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700">
+          <button onClick={() => fetchData()} className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700">
             Try Again
           </button>
         </div>
@@ -288,9 +342,27 @@ export default function MoviesManagement() {
                   <td className="px-6 py-4 text-gray-400">{item.movie.release_year || '-'}</td>
                   <td className="px-6 py-4 text-gray-400">{movieService.formatDuration(item.movie.duration_seconds)}</td>
                   <td className="px-6 py-4">
-                    <span className={`px-3 py-1 rounded-full text-xs font-semibold ${movieService.getStatusColor(item.movie.status)}`}>
-                      {item.movie.status || 'DRAFT'}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className={`px-3 py-1 rounded-full text-xs font-semibold ${movieService.getStatusColor(item.movie.status)}`}>
+                        {item.movie.status || 'DRAFT'}
+                      </span>
+                      {item.movie.status === 'PROCESSING' && (
+                        <>
+                          <Loader2 className="w-4 h-4 text-yellow-400 animate-spin" />
+                          <span className="text-xs text-yellow-400">
+                            {transcodeProgress[item.movie.id] ?? 0}%
+                          </span>
+                        </>
+                      )}
+                    </div>
+                    {item.movie.status === 'PROCESSING' && (
+                      <div className="mt-2 h-1.5 w-28 bg-gray-800 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-yellow-500 transition-all duration-500"
+                          style={{ width: `${transcodeProgress[item.movie.id] ?? 0}%` }}
+                        />
+                      </div>
+                    )}
                   </td>
                   <td className="px-6 py-4 text-gray-400">{item.movie.views?.toLocaleString() || '0'}</td>
                   <td className="px-6 py-4">

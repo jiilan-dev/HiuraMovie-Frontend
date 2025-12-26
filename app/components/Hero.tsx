@@ -1,19 +1,43 @@
 import { Play, Info } from 'lucide-react';
 import { Link } from 'react-router';
+import type { MouseEvent } from 'react';
 
 interface HeroProps {
   title?: string;
   description?: string;
   backgroundImage?: string;
   movieId?: string;
+  primaryHref?: string;
+  secondaryHref?: string;
+  onPrimaryAction?: () => void;
+  onSecondaryAction?: () => void;
 }
 
 export function Hero({ 
   title = "Stranger Things", 
   description = "When a young boy vanishes, a small town uncovers a mystery involving secret experiments, terrifying supernatural forces and one strange little girl.",
   backgroundImage = "https://images.unsplash.com/photo-1626814026160-2237a95fc5a0?w=1920&q=80",
-  movieId = "1"
+  movieId = "1",
+  primaryHref,
+  secondaryHref,
+  onPrimaryAction,
+  onSecondaryAction
 }: HeroProps) {
+  const primaryLink = primaryHref ?? `/watch/${movieId}`;
+  const secondaryLink = secondaryHref ?? `/movie/${movieId}`;
+
+  const handlePrimaryClick = (event: MouseEvent) => {
+    if (!onPrimaryAction) return;
+    event.preventDefault();
+    onPrimaryAction();
+  };
+
+  const handleSecondaryClick = (event: MouseEvent) => {
+    if (!onSecondaryAction) return;
+    event.preventDefault();
+    onSecondaryAction();
+  };
+
   return (
     <section className="relative h-[85vh] min-h-[600px] flex items-end">
       {/* Background Image */}
@@ -42,14 +66,16 @@ export function Hero({
           {/* Buttons */}
           <div className="flex gap-4">
             <Link 
-              to={`/watch/${movieId}`}
+              to={primaryLink}
+              onClick={handlePrimaryClick}
               className="flex items-center gap-2 px-8 py-3 bg-white text-black font-semibold rounded hover:bg-gray-200 transition-colors"
             >
               <Play className="w-6 h-6 fill-current" />
               Play
             </Link>
             <Link 
-              to={`/movie/${movieId}`}
+              to={secondaryLink}
+              onClick={handleSecondaryClick}
               className="flex items-center gap-2 px-8 py-3 bg-gray-500/70 text-white font-semibold rounded hover:bg-gray-500/90 transition-colors backdrop-blur-sm"
             >
               <Info className="w-6 h-6" />

@@ -1,11 +1,12 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router';
 import { seriesService } from '~/services/series';
-import type { SeriesDetailResponse, SeasonResponse, Episode } from '~/types';
+import type { SeriesDetailResponse } from '~/types';
+import { Modal } from '~/components/dashboard';
 import { 
     ArrowLeft, Plus, Edit, Trash2, 
     ChevronDown, ChevronRight, Upload, Play, Image as ImageIcon,
-    Save, X
+    Loader2
 } from 'lucide-react';
 
 export default function SeriesDetail() {
@@ -14,30 +15,115 @@ export default function SeriesDetail() {
     const [seriesData, setSeriesData] = useState<SeriesDetailResponse | null>(null);
     const [loading, setLoading] = useState(true);
     const [expandedSeasons, setExpandedSeasons] = useState<Record<string, boolean>>({});
+    const [transcodeProgress, setTranscodeProgress] = useState<Record<string, number>>({});
+    const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+    const [editTitle, setEditTitle] = useState('');
+    const [editDescription, setEditDescription] = useState('');
+    const [editYear, setEditYear] = useState('');
+    const [editError, setEditError] = useState('');
+    const [isSaving, setIsSaving] = useState(false);
     
     // Upload State
     const [uploading, setUploading] = useState<{ id: string, type: 'video' | 'thumbnail', progress: number } | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [uploadTarget, setUploadTarget] = useState<{ episodeId: string, type: 'video' | 'thumbnail' } | null>(null);
+    const seriesThumbInputRef = useRef<HTMLInputElement>(null);
+    const [seriesThumbUploading, setSeriesThumbUploading] = useState(false);
+    const [seriesThumbProgress, setSeriesThumbProgress] = useState(0);
 
-    useEffect(() => {
-        if (id) loadSeries(id);
-    }, [id]);
-
-    const loadSeries = async (seriesId: string) => {
+    const loadSeries = useCallback(async (seriesId: string, options: { silent?: boolean } = {}) => {
+        const { silent = false } = options;
         try {
-            setLoading(true);
+            if (!silent) {
+                setLoading(true);
+            }
             const data = await seriesService.get(seriesId);
             setSeriesData(data);
             
             // Auto expand first season if exists
-            if (data.seasons.length > 0) {
+            if (!silent && data.seasons.length > 0) {
                 setExpandedSeasons({ [data.seasons[0].season.id]: true });
             }
         } catch (error) {
             console.error('Failed to load series:', error);
         } finally {
-            setLoading(false);
+            if (!silent) {
+                setLoading(false);
+            }
+        }
+    }, []);
+
+    useEffect(() => {
+        if (id) loadSeries(id);
+    }, [id, loadSeries]);
+
+    const openEditModal = () => {
+        if (!seriesData) return;
+        setEditTitle(seriesData.series.title);
+        setEditDescription(seriesData.series.description || '');
+        setEditYear(seriesData.series.release_year ? `${seriesData.series.release_year}` : '');
+        setEditError('');
+        setIsEditModalOpen(true);
+    };
+
+    const closeEditModal = () => {
+        if (isSaving) return;
+        setIsEditModalOpen(false);
+        setEditError('');
+    };
+
+    const handleEditSave = async () => {
+        if (!seriesData) return;
+        if (!editTitle.trim()) {
+            setEditError('Title is required');
+            return;
+        }
+
+        setIsSaving(true);
+        setEditError('');
+
+        try {
+            await seriesService.update(seriesData.series.id, {
+                title: editTitle.trim(),
+                description: editDescription.trim() || undefined,
+                release_year: editYear ? parseInt(editYear, 10) : undefined,
+            });
+            await loadSeries(seriesData.series.id, { silent: true });
+            closeEditModal();
+        } catch (error: any) {
+            setEditError(error?.response?.data?.message || 'Failed to update series');
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    const handleSeriesThumbnailClick = () => {
+        if (!seriesThumbUploading) {
+            seriesThumbInputRef.current?.click();
+        }
+    };
+
+    const handleSeriesThumbnailChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        if (!file || !seriesData) return;
+
+        setSeriesThumbUploading(true);
+        setSeriesThumbProgress(0);
+
+        try {
+            await seriesService.uploadSeriesThumbnail(seriesData.series.id, file, (progress) => {
+                setSeriesThumbProgress(progress);
+            });
+            await loadSeries(seriesData.series.id, { silent: true });
+        } catch (error) {
+            console.error('Series thumbnail upload failed', error);
+            alert('Thumbnail upload failed');
+        } finally {
+            setSeriesThumbUploading(false);
+            setSeriesThumbProgress(0);
+            if (seriesThumbInputRef.current) {
+                seriesThumbInputRef.current.value = '';
+            }
         }
     };
 
@@ -74,7 +160,7 @@ export default function SeriesDetail() {
             }
             
             // Refresh data
-            if (id) await loadSeries(id);
+            if (id) await loadSeries(id, { silent: true });
             alert('Upload successful!');
 
         } catch (error) {
@@ -97,7 +183,7 @@ export default function SeriesDetail() {
                     season_number: seasonNumber,
                     title: `Season ${seasonNumber}`
                 });
-                loadSeries(seriesData.series.id);
+                loadSeries(seriesData.series.id, { silent: true });
             } catch (e) {
                 console.error(e);
                 alert('Failed to create season');
@@ -116,7 +202,7 @@ export default function SeriesDetail() {
                     description: '',
                     duration_seconds: 0
                 });
-                if (id) loadSeries(id);
+                if (id) loadSeries(id, { silent: true });
             } catch (e) {
                 console.error(e);
                 alert('Failed to create episode');
@@ -128,7 +214,7 @@ export default function SeriesDetail() {
         if (confirm('Delete this episode?')) {
              try {
                 await seriesService.deleteEpisode(episodeId);
-                if (id) loadSeries(id);
+                if (id) loadSeries(id, { silent: true });
             } catch (e) {
                 console.error(e);
                 alert('Failed to delete episode');
@@ -136,10 +222,57 @@ export default function SeriesDetail() {
         }
     };
 
+    useEffect(() => {
+        if (!seriesData || !id) return;
+
+        const episodeIds = seriesData.seasons
+            .flatMap((season) => season.episodes)
+            .filter((episode) => episode.status === 'PROCESSING')
+            .map((episode) => episode.id);
+
+        if (episodeIds.length === 0) {
+            setTranscodeProgress({});
+            return;
+        }
+
+        const loadProgress = async () => {
+            const results = await Promise.allSettled(
+                episodeIds.map((episodeId) => seriesService.getEpisodeTranscodeProgress(episodeId))
+            );
+
+            setTranscodeProgress((prev) => {
+                const next: Record<string, number> = {};
+                episodeIds.forEach((episodeId, index) => {
+                    const result = results[index];
+                    if (result.status === 'fulfilled') {
+                        next[episodeId] = result.value;
+                    } else if (prev[episodeId] !== undefined) {
+                        next[episodeId] = prev[episodeId];
+                    }
+                });
+                return next;
+            });
+        };
+
+        loadProgress();
+
+        const interval = setInterval(() => {
+            loadSeries(id, { silent: true });
+            loadProgress();
+        }, 5000);
+
+        return () => clearInterval(interval);
+    }, [seriesData, id, loadSeries]);
+
     if (loading) return <div className="p-8 text-center text-gray-500">Loading...</div>;
     if (!seriesData) return <div className="p-8 text-center text-red-500">Series not found</div>;
 
     const { series, genres, seasons } = seriesData;
+    const seriesPosterUrl = series.thumbnail_url
+        ? (series.thumbnail_url.startsWith('http') || series.thumbnail_url.startsWith('/')
+            ? series.thumbnail_url
+            : seriesService.getThumbnailUrl(series.id))
+        : undefined;
 
     return (
         <div className="p-8 max-w-5xl mx-auto">
@@ -149,6 +282,13 @@ export default function SeriesDetail() {
                 className="hidden" 
                 onChange={handleFileChange} 
                 accept={uploadTarget?.type === 'video' ? "video/mp4,video/*" : "image/*"}
+            />
+            <input
+                type="file"
+                ref={seriesThumbInputRef}
+                className="hidden"
+                onChange={handleSeriesThumbnailChange}
+                accept="image/*"
             />
 
             <button 
@@ -160,11 +300,28 @@ export default function SeriesDetail() {
 
             {/* Header Info */}
             <div className="flex gap-8 mb-10">
-                <div className="w-48 h-72 bg-gray-800 rounded-lg overflow-hidden flex-shrink-0">
-                    {series.thumbnail_url ? (
-                        <img src={series.thumbnail_url} alt={series.title} className="w-full h-full object-cover" />
+                <div className="w-48 h-72 bg-gray-800 rounded-lg overflow-hidden flex-shrink-0 relative group">
+                    {seriesPosterUrl ? (
+                        <img src={seriesPosterUrl} alt={series.title} className="w-full h-full object-cover" />
                     ) : (
                         <div className="w-full h-full flex items-center justify-center text-gray-500">No Poster</div>
+                    )}
+                    <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                        <button
+                            onClick={handleSeriesThumbnailClick}
+                            disabled={seriesThumbUploading}
+                            className="text-white text-xs bg-gray-900 px-3 py-1.5 rounded border border-gray-700 disabled:opacity-50"
+                        >
+                            {seriesThumbUploading ? 'Uploading...' : 'Change Poster'}
+                        </button>
+                    </div>
+                    {seriesThumbUploading && (
+                        <div className="absolute bottom-0 left-0 right-0 h-1.5 bg-gray-800">
+                            <div
+                                className="h-full bg-red-500 transition-all duration-300"
+                                style={{ width: `${seriesThumbProgress}%` }}
+                            />
+                        </div>
                     )}
                 </div>
                 <div className="flex-1">
@@ -179,7 +336,10 @@ export default function SeriesDetail() {
                     <p className="text-gray-300 leading-relaxed mb-6">{series.description || 'No description available.'}</p>
                     
                     <div className="flex gap-3">
-                         <button className="flex items-center gap-2 bg-gray-800 hover:bg-gray-700 text-white px-4 py-2 rounded-lg transition-colors">
+                         <button
+                            onClick={openEditModal}
+                            className="flex items-center gap-2 bg-gray-800 hover:bg-gray-700 text-white px-4 py-2 rounded-lg transition-colors"
+                        >
                             <Edit className="w-4 h-4" /> Edit Series
                         </button>
                     </div>
@@ -276,7 +436,12 @@ export default function SeriesDetail() {
 
                                                     {/* Video Status / Upload */}
                                                     <div className="flex items-center gap-3">
-                                                        {episode.video_url ? (
+                                                        {episode.status === 'PROCESSING' ? (
+                                                            <span className="text-xs text-yellow-400 bg-yellow-400/10 px-2 py-0.5 rounded flex items-center gap-1">
+                                                                <Loader2 className="w-3 h-3 animate-spin" />
+                                                                Processing {transcodeProgress[episode.id] ?? 0}%
+                                                            </span>
+                                                        ) : episode.video_url ? (
                                                             <span className="text-xs text-green-400 bg-green-400/10 px-2 py-0.5 rounded flex items-center gap-1">
                                                                 <Play className="w-3 h-3" /> Ready
                                                             </span>
@@ -288,7 +453,7 @@ export default function SeriesDetail() {
 
                                                         <button 
                                                             onClick={() => handleUploadClick(episode.id, 'video')}
-                                                            disabled={!!uploading}
+                                                            disabled={!!uploading || episode.status === 'PROCESSING'}
                                                             className="text-xs flex items-center gap-1.5 text-blue-400 hover:text-blue-300 transition-colors disabled:opacity-50"
                                                         >
                                                             <Upload className="w-3 h-3" /> 
@@ -309,6 +474,14 @@ export default function SeriesDetail() {
                                                             </div>
                                                         )}
                                                     </div>
+                                                    {episode.status === 'PROCESSING' && (
+                                                        <div className="mt-2 h-1.5 max-w-xs bg-gray-700 rounded-full overflow-hidden">
+                                                            <div
+                                                                className="h-full bg-yellow-500 transition-all duration-500"
+                                                                style={{ width: `${transcodeProgress[episode.id] ?? 0}%` }}
+                                                            />
+                                                        </div>
+                                                    )}
                                                 </div>
                                             </div>
                                         ))}
@@ -319,6 +492,72 @@ export default function SeriesDetail() {
                     </div>
                 ))}
             </div>
+
+            <Modal
+                isOpen={isEditModalOpen}
+                onClose={closeEditModal}
+                title="Edit Series"
+                footer={
+                    <div className="flex items-center gap-4">
+                        <button
+                            onClick={closeEditModal}
+                            disabled={isSaving}
+                            className="flex-1 px-4 py-3 border border-gray-700 text-gray-400 rounded-xl hover:bg-white/5 font-medium disabled:opacity-50"
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            onClick={handleEditSave}
+                            disabled={isSaving}
+                            className="flex-1 px-4 py-3 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-xl font-medium disabled:opacity-50 flex items-center justify-center gap-2"
+                        >
+                            {isSaving && <Loader2 className="w-4 h-4 animate-spin" />}
+                            Save
+                        </button>
+                    </div>
+                }
+            >
+                <div className="space-y-5 max-h-[60vh] overflow-y-auto">
+                    {editError && (
+                        <div className="bg-red-500/20 border border-red-500 text-red-400 px-4 py-3 rounded-xl text-sm">
+                            {editError}
+                        </div>
+                    )}
+
+                    <div>
+                        <label className="block text-gray-400 text-sm font-medium mb-2">Title *</label>
+                        <input
+                            type="text"
+                            placeholder="Series title"
+                            value={editTitle}
+                            onChange={(e) => setEditTitle(e.target.value)}
+                            className="w-full bg-black/30 border border-gray-700 text-white px-4 py-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/50"
+                        />
+                    </div>
+
+                    <div>
+                        <label className="block text-gray-400 text-sm font-medium mb-2">Description</label>
+                        <textarea
+                            placeholder="Series description"
+                            rows={3}
+                            value={editDescription}
+                            onChange={(e) => setEditDescription(e.target.value)}
+                            className="w-full bg-black/30 border border-gray-700 text-white px-4 py-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/50 resize-none"
+                        />
+                    </div>
+
+                    <div>
+                        <label className="block text-gray-400 text-sm font-medium mb-2">Release Year</label>
+                        <input
+                            type="number"
+                            placeholder="2024"
+                            value={editYear}
+                            onChange={(e) => setEditYear(e.target.value)}
+                            className="w-full bg-black/30 border border-gray-700 text-white px-4 py-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/50"
+                        />
+                    </div>
+                </div>
+            </Modal>
         </div>
     );
 }

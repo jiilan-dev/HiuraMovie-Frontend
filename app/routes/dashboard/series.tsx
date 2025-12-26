@@ -1,17 +1,35 @@
 import { useEffect, useState } from 'react';
-import { Plus, Search, Edit, Trash2, Eye } from 'lucide-react';
+import { Plus, Search, Edit, Trash2, Eye, Loader2 } from 'lucide-react';
 import { seriesService } from '~/services/series';
-import type { SeriesListResponse } from '~/types';
+import { genreService, type Genre } from '~/services/genre';
+import type { CreateSeriesRequest, SeriesListResponse } from '~/types';
 import { Link, useNavigate } from 'react-router';
+import { Modal } from '~/components/dashboard';
+
+const resolveSeriesThumbnail = (thumb?: string, seriesId?: string) => {
+  if (!thumb || !seriesId) return undefined;
+  if (thumb.startsWith('http') || thumb.startsWith('/')) return thumb;
+  return seriesService.getThumbnailUrl(seriesId);
+};
 
 export default function SeriesManagement() {
   const [searchQuery, setSearchQuery] = useState('');
   const [seriesList, setSeriesList] = useState<SeriesListResponse[]>([]);
+  const [genres, setGenres] = useState<Genre[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingSeries, setEditingSeries] = useState<SeriesListResponse | null>(null);
+  const [formTitle, setFormTitle] = useState('');
+  const [formDescription, setFormDescription] = useState('');
+  const [formYear, setFormYear] = useState('');
+  const [formGenreIds, setFormGenreIds] = useState<string[]>([]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [formError, setFormError] = useState('');
   const navigate = useNavigate();
 
   useEffect(() => {
     loadSeries();
+    loadGenres();
   }, []);
 
   const loadSeries = async () => {
@@ -25,6 +43,15 @@ export default function SeriesManagement() {
     }
   };
 
+  const loadGenres = async () => {
+    try {
+      const data = await genreService.list();
+      setGenres(data);
+    } catch (error) {
+      console.error('Failed to load genres:', error);
+    }
+  };
+
   const handleDelete = async (id: string) => {
     if (confirm('Are you sure you want to delete this series?')) {
       try {
@@ -33,6 +60,72 @@ export default function SeriesManagement() {
       } catch (error) {
         console.error('Failed to delete series:', error);
       }
+    }
+  };
+
+  const openModal = (item?: SeriesListResponse) => {
+    if (item) {
+      setEditingSeries(item);
+      setFormTitle(item.series.title);
+      setFormDescription(item.series.description || '');
+      setFormYear(item.series.release_year ? `${item.series.release_year}` : '');
+      setFormGenreIds(item.genres.map((genre) => genre.id));
+    } else {
+      setEditingSeries(null);
+      setFormTitle('');
+      setFormDescription('');
+      setFormYear('');
+      setFormGenreIds([]);
+    }
+    setFormError('');
+    setIsModalOpen(true);
+  };
+
+  const closeModal = () => {
+    if (isSubmitting) return;
+    setIsModalOpen(false);
+    setFormError('');
+    setEditingSeries(null);
+  };
+
+  const toggleGenre = (genreId: string) => {
+    setFormGenreIds((prev) =>
+      prev.includes(genreId)
+        ? prev.filter((id) => id !== genreId)
+        : [...prev, genreId]
+    );
+  };
+
+  const handleSubmit = async () => {
+    if (!formTitle.trim()) {
+      setFormError('Title is required');
+      return;
+    }
+
+    setIsSubmitting(true);
+    setFormError('');
+
+    try {
+      const payload: CreateSeriesRequest = {
+        title: formTitle.trim(),
+        description: formDescription.trim() || undefined,
+        release_year: formYear ? parseInt(formYear, 10) : undefined,
+        genre_ids: formGenreIds,
+      };
+      if (editingSeries) {
+        await seriesService.update(editingSeries.series.id, payload);
+        closeModal();
+        await loadSeries();
+      } else {
+        const created = await seriesService.create(payload);
+        closeModal();
+        await loadSeries();
+        navigate(`/dashboard/series/${created.series.id}`);
+      }
+    } catch (error: any) {
+      setFormError(error?.response?.data?.message || 'Failed to save series');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -50,10 +143,7 @@ export default function SeriesManagement() {
           <p className="text-gray-500 mt-1">Manage your TV series library</p>
         </div>
         <button 
-            onClick={() => {
-                // TODO: Implement create modal or page
-                alert("Create Series Not Implemented Yet");
-            }}
+            onClick={() => openModal()}
             className="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white font-medium px-4 py-2 rounded-lg transition-colors">
           <Plus className="w-5 h-5" />
           Add Series
@@ -100,11 +190,11 @@ export default function SeriesManagement() {
                     <td className="p-4">
                     <div className="flex items-center gap-3">
                         {item.series.thumbnail_url ? (
-                            <img 
-                            src={item.series.thumbnail_url} // Needs full URL handling if relative? Service/Component should handle this.
+                          <img 
+                            src={resolveSeriesThumbnail(item.series.thumbnail_url, item.series.id)}
                             alt={item.series.title}
                             className="w-16 h-10 object-cover rounded"
-                            />
+                          />
                         ) : (
                             <div className="w-16 h-10 bg-gray-800 rounded flex items-center justify-center text-xs text-gray-500">No Img</div>
                         )}
@@ -121,7 +211,10 @@ export default function SeriesManagement() {
                         <Link to={`/dashboard/series/${item.series.id}`} className="p-2 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors">
                         <Eye className="w-4 h-4" />
                         </Link>
-                        <button className="p-2 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors">
+                        <button
+                          onClick={() => openModal(item)}
+                          className="p-2 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors"
+                        >
                         <Edit className="w-4 h-4" />
                         </button>
                         <button 
@@ -138,6 +231,95 @@ export default function SeriesManagement() {
         </table>
         )}
       </div>
+
+      <Modal
+        isOpen={isModalOpen}
+        onClose={closeModal}
+        title={editingSeries ? 'Edit Series' : 'Add New Series'}
+        footer={
+          <div className="flex items-center gap-4">
+            <button
+              onClick={closeModal}
+              disabled={isSubmitting}
+              className="flex-1 px-4 py-3 border border-gray-700 text-gray-400 rounded-xl hover:bg-white/5 font-medium disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleSubmit}
+              disabled={isSubmitting}
+              className="flex-1 px-4 py-3 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-xl font-medium disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {isSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}
+              {editingSeries ? 'Save' : 'Create'}
+            </button>
+          </div>
+        }
+      >
+        <div className="space-y-5 max-h-[60vh] overflow-y-auto">
+          {formError && (
+            <div className="bg-red-500/20 border border-red-500 text-red-400 px-4 py-3 rounded-xl text-sm">
+              {formError}
+            </div>
+          )}
+
+          <div>
+            <label className="block text-gray-400 text-sm font-medium mb-2">Title *</label>
+            <input
+              type="text"
+              placeholder="Series title"
+              value={formTitle}
+              onChange={(e) => setFormTitle(e.target.value)}
+              className="w-full bg-black/30 border border-gray-700 text-white px-4 py-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/50"
+            />
+          </div>
+
+          <div>
+            <label className="block text-gray-400 text-sm font-medium mb-2">Description</label>
+            <textarea
+              placeholder="Series description"
+              rows={3}
+              value={formDescription}
+              onChange={(e) => setFormDescription(e.target.value)}
+              className="w-full bg-black/30 border border-gray-700 text-white px-4 py-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/50 resize-none"
+            />
+          </div>
+
+          <div>
+            <label className="block text-gray-400 text-sm font-medium mb-2">Release Year</label>
+            <input
+              type="number"
+              placeholder="2024"
+              value={formYear}
+              onChange={(e) => setFormYear(e.target.value)}
+              className="w-full bg-black/30 border border-gray-700 text-white px-4 py-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/50"
+            />
+          </div>
+
+          <div>
+            <label className="block text-gray-400 text-sm font-medium mb-2">Genres</label>
+            <div className="flex flex-wrap gap-2">
+              {genres.map((genre) => (
+                <button
+                  key={genre.id}
+                  type="button"
+                  onClick={() => toggleGenre(genre.id)}
+                  className={`px-3 py-1.5 rounded-full text-sm font-medium transition-all ${
+                    formGenreIds.includes(genre.id)
+                      ? 'bg-red-600 text-white'
+                      : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                  }`}
+                >
+                  {genre.name}
+                </button>
+              ))}
+              {genres.length === 0 && (
+                <p className="text-gray-500 text-sm">No genres available. Create genres first.</p>
+              )}
+            </div>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

@@ -127,4 +127,50 @@ export const seriesService = {
         );
         return response.data;
     },
+
+    async uploadSeriesThumbnail(
+        seriesId: string,
+        file: File,
+        onProgress?: (percent: number) => void
+    ): Promise<string> {
+        const formData = new FormData();
+        formData.append('thumbnail', file);
+
+        const response = await http.post<ApiSuccess<string>>(
+            `/series/${seriesId}/upload-thumbnail`,
+            formData,
+            {
+                headers: {
+                    'Content-Type': 'multipart/form-data',
+                },
+                onUploadProgress: (progressEvent) => {
+                    if (onProgress && progressEvent.total) {
+                        const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+                        onProgress(percent);
+                    }
+                },
+            }
+        );
+        return response.data;
+    },
+
+    async getEpisodeTranscodeProgress(episodeId: string): Promise<number> {
+        const response = await http.get<ApiSuccess<number>>(`/episodes/${episodeId}/progress`);
+        return response.data ?? 0;
+    },
+
+    getThumbnailUrl(seriesId: string): string {
+        const baseUrl = import.meta.env.VITE_API_BASE_URL || '/api/v1';
+        return `${baseUrl}/series/${seriesId}/thumbnail`;
+    },
+
+    getEpisodeStreamUrl(episodeId: string): string {
+        const baseUrl = import.meta.env.VITE_API_BASE_URL || '/api/v1';
+        return `${baseUrl}/episodes/${episodeId}/stream`;
+    },
+
+    getEpisodeSubtitleUrl(episodeId: string): string {
+        const baseUrl = import.meta.env.VITE_API_BASE_URL || '/api/v1';
+        return `${baseUrl}/episodes/${episodeId}/subtitle`;
+    },
 };

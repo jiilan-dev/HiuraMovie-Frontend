@@ -10,6 +10,7 @@ export default [
         route("dashboard", "routes/dashboard/index.tsx"),
         route("dashboard/movies", "routes/dashboard/movies.tsx"),
         route("dashboard/series", "routes/dashboard/series.tsx"),
+        route("dashboard/series/:id", "routes/dashboard/series.$id.tsx"),
         route("dashboard/genres", "routes/dashboard/genres.tsx"),
         route("dashboard/users", "routes/dashboard/users.tsx"),
     ]),
@@ -17,5 +18,10 @@ export default [
     // Main app routes (with layout)
     layout("routes/_layout.tsx", [
         index("routes/home.tsx"),
+        route("series", "routes/series.tsx"),
+        route("series/:id", "routes/series.$id.tsx"),
+        route("series/:seriesId/episode/:episodeId", "routes/series.$seriesId.episode.$episodeId.tsx"),
+        route("movie/:id", "routes/movie.$id.tsx"),
+        route("watch/:id", "routes/watch.$id.tsx"),
     ])
 ] satisfies RouteConfig;
